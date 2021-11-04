@@ -1,0 +1,412 @@
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+	<meta charset="utf-8" />
+	<!-- Bootstrap CSS -->
+	<link href="bootstrap.css" rel="stylesheet">
+	<title>Iot</title>
+  <script src="jquery-3.6.0.js"></script>
+	<script>
+
+	window.onload = function () {
+			$("#Modo2").hide();
+			$("#button1").on('click', cambiarModo);
+
+	}
+
+	var modo = 1;
+
+	var registro = [];
+
+	var timer = setInterval(readData ,1000);
+
+	var urlbuzzer1 = "http://192.168.2.101:3161/devices/AdvanReader-m4-150/buzzer/100/100/400";
+	var urlbuzzer2 = "http://192.168.2.101:3161/devices/AdvanReader-m4-150/buzzer/300/300/800";
+
+	class Registro {
+		constructor(tag, opc, time, msg){
+				this.tag = tag;
+				this.opc = opc;
+				this.time = time;
+				this.msg = msg;
+		}
+	}
+
+
+	class Usuario {
+	  constructor(uid, nombre, apellido1, apellido2, fechaNacimiento, dni, acceso, salaActual) {
+	    this.uid = uid;
+	    this.nombre = nombre;
+			this.apellido1 = apellido1;
+			this.apellido2 = apellido2;
+			this.fechaNacimiento = fechaNacimiento;
+			this.dni = dni;
+			this.acceso = acceso;
+	    this.salaActual = salaActual;
+	  }
+	}
+
+	var usuarios = new Map();
+
+	usuarios.set("000000000000000000000001", new Usuario("1","Albert","Fernandez","Diaz","05/10/1994","14125397H",[0,1,2],-1));
+	usuarios.set("000000000000000000000002", new Usuario("2","Clara","Huguet","Leioa","08/10/2001","56482317M",[0,2],-1));
+	usuarios.set("000000000000000000000003", new Usuario("3","Josep","Pujol","Tortosa","21/07/1998","12345874S",[0],-1));
+	usuarios.set("000000000000000000000004", new Usuario("4","Joel","García","Antón","29/03/1985","78879631R",[0,2],-1));
+	usuarios.set("000000000000000000000005", new Usuario("5","Marta","Ferrer","Capafons","18/09/2002","45632112T",[0,1],-1));
+	usuarios.set("000000000000000000000006", new Usuario("6","Marc","Giné","Andreu","30/05/1979","78654319W",[2],-1));
+	usuarios.set("000000000000000000000007", new Usuario("7","Alba","Renom","Ferran","09/04/2000","44556213P",[1,2],-1));
+	usuarios.set("000000000000000000000008", new Usuario("8","Anna","Agramunt","Torres","06/12/1999","22135463Y",[1],-1));
+	usuarios.set("000000000000000000000009", new Usuario("9","Eric","Yert","Calero","09/02/1987","33215499J",[1],-1));
+	usuarios.set("000000000000000000000010", new Usuario("10","Roberto","Calero","Gonzalez","13/08/1991","20255294R",[1,2],-1));
+
+
+
+	function initInfo(){
+		registro = [];
+		usuarios.forEach((item, i) => {
+			item.salaActual = -1;
+		});
+	}
+
+	function cambiarModo(){
+			if (modo == 1){
+				$("#button1").html("Modo 2");
+				$("#Modo1").hide();
+				$("#Modo2").show();
+				modo = 2;
+			}else{
+				$("#button1").html("Modo 1");
+				$("#Modo2").hide();
+				$("#Modo1").show();
+				modo = 1;
+			}
+
+			initInfo();
+	}
+
+
+	function checkRegistro(tag, time){
+		return registro.some(function(item){
+			t = parseInt(time);
+				tt = parseInt(item.time);
+				return item.tag == tag && tt+3000 > time;
+		});
+	}
+
+	function readData() {
+
+		let url1 = "http://192.168.2.101:3161/devices/AdvanReader-m4-150/inventory";
+		let url2 = "http://localhost:3161/devices/simulator/inventory";
+		$.get(url1, function (data, status) {
+
+			var $xml = $(data);
+			var $item = $xml.find("item");
+
+			$item.each(function(){
+
+				var tag = $(this).find('epc').text();
+				var info = $(this).find('prop').text();
+
+				info_split = info.split(",");
+				p = info_split[3];
+				port = p.charAt(p.length-1);
+				t = info_split[0];
+				time = t.split(":")[1];
+
+				let opc;
+
+				if (port <= 2 ) opc = 1;
+				else opc = 2;
+
+				if(!checkRegistro(tag, time)){
+
+					let msg;
+
+					let usr = usuarios.get(tag);
+					if (usr != undefined){
+						if (modo == 1){
+							msg = Modo1(usr, opc);
+							registro.unshift(new Registro(tag, opc, time, msg));
+							actualizarSalaUnica();
+							ultimoUsuario();
+						}
+						if (modo == 2){
+							msg = Modo2(usr, opc);
+							registro.unshift(new Registro(tag, opc, time, msg));
+							actualizarSalasInfo();
+						}
+
+						if(msg.includes("Acceso concedido"))	$.get(urlbuzzer1);
+						else{
+								$.get(urlbuzzer1);
+								$.get(urlbuzzer2);
+						}
+					}
+					console.log("tag: " + tag + " Port: "+ port + " Time: " + time + " Msg " + msg);
+					actualizarRegistro();
+				}
+			});
+		});
+	}
+
+	function tieneAcceso(urs, sala){
+		return urs.acceso.includes(sala);
+	}
+
+	function Modo1(usr, opc){
+
+		if (tieneAcceso(usr, 0)){
+			if (opc == 1 && usr.salaActual != 0){
+					usr.salaActual = 0;
+					return "Acceso concedido";
+			}
+
+			if (opc == 1 && usr.salaActual == 0) return "El usario ya esta dentro de la sala";
+
+			if (opc == 2 && usr.salaActual == 0){
+					usr.salaActual = -1;
+					return "El usuario a salido";
+			}
+			if (opc == 2 && usr.salaActual != 0) return "El usuario no esta dentro de la sala";
+
+		}
+		else{
+			return "El usuario no tiene acceso";
+		}
+	}
+
+	function Modo2(usr, opc){
+
+		if (opc == 1 && usr.salaActual != 1){
+			if (tieneAcceso(usr, 1)) {
+				usr.salaActual = 1;
+				return "Acceso concedido a la sala 1";
+			}else{
+				return "El usuario no tiene acceso a la sala 1";
+			}
+
+		}
+		if (opc == 1 && usr.salaActual == 1){
+			usr.salaActual = -1;
+			return "El usuario a salido de la sala 1";
+		}
+
+		if (opc == 2 && usr.salaActual != 2){
+			if (tieneAcceso(usr, 2)) {
+				usr.salaActual = 2;
+				return "Acceso concedido a la sala 2";
+			}else{
+				return "El usuario no tiene acceso a la sala 2";
+			}
+		}
+		if (opc == 2 && usr.salaActual == 2){
+			usr.salaActual = -1;
+			return "El usuario a salido de la sala 2";
+		}
+	}
+
+	function actualizarSalasInfo(){
+
+		$("#colSala1").html("");
+		$("#colSala2").html("");
+
+		let cont1 = 0;
+		let cont2 = 0;
+
+		usuarios.forEach((usr, i) => {
+			let t;
+			if (usr.salaActual == 1 ){
+				t = "ID: " + usr.uid + "		" + "Nombre: " + usr.nombre;
+				$('<p>'+t+'</p>').appendTo('#colSala1');
+				cont1++;
+			}
+			if (usr.salaActual == 2 ){
+				t = "ID: " + usr.uid + "		" + "Nombre: " + usr.nombre;
+				$('<p>'+t+'</p>').appendTo('#colSala2');
+				cont2++;
+			}
+		});
+		$("#sala1Contador").html("Total usuarios: " + cont1);
+		$("#sala2Contador").html("Total usuarios: " + cont2);
+
+	}
+
+	function actualizarSalaUnica(){
+
+		$("#colSala").html("");
+		let cont = 0;
+		usuarios.forEach((usr, i) => {
+			let t;
+			if (usr.salaActual == 0 ){
+				t = "ID: " + usr.uid + "		" + "Nombre: " + usr.nombre;
+				$('<p>'+t+'</p>').appendTo('#colSala');
+				cont++;
+			}
+		});
+		$("#salaContador").html("Total usuarios: " + cont);
+	}
+
+	function ultimoUsuario(){
+
+		let usr = usuarios.get(registro[0].tag);
+
+		let t;
+		t = '<p>'+"ID: " + usr.uid + '<br>' + "Nombre: " + usr.nombre + '<br>'
+		+ "Apellidos: " + usr.apellido1 + " " + usr.apellido2 + '<br>' + "DNI: " + usr.dni + '<br>'
+		"Fecha de Nacimento: " + usr.fechaNacimiento + '</p>';
+		$("#colUsr").html(t);
+
+
+	}
+
+	function actualizarRegistro(){
+		$("#colTag").html("");
+		$("#colOpc").html("");
+		$("#colTime").html("");
+		$("#colMsg").html("");
+
+		registro.forEach((item, i) => {
+			$('<p>'+item.tag+'</p>').appendTo('#colTag');
+			$('<p>'+item.opc+'</p>').appendTo('#colOpc');
+			let msg = item.msg;
+			if(msg.includes("Acceso concedido")) $('<p class="text-success">'+msg+'</p>').appendTo('#colMsg');
+			else $('<p class="text-danger">'+msg+'</p>').appendTo('#colMsg');
+			var date = new Date(parseInt(item.time));
+			var hours = date.getHours();
+			var minutes = "0" + date.getMinutes();
+			var seconds = "0" + date.getSeconds();
+			var formatTime = hours + ':' + minutes.substr(-2) + ':' + seconds.substr(-2);
+			$('<p>'+formatTime+'</p>').appendTo('#colTime');
+		});
+	}
+
+
+	</script>
+	</head>
+	<body>
+
+    <h3 style="margin:15px 15px;"> Automatic Capacity Control </h3>
+		<h5 style="margin:-5px 15px;"> RFID | Iot Solutions for Capacity and Acces Control </h5>
+    <button id="button1" class="btn btn-primary" style="margin:15px 15px;">Modo 1</button>
+
+		<div class="container">
+
+			<div class="card mb-2" style="height: 380px;">
+
+			<div id="style-1" class="row mb-2 align-items-start card-body" style="overflow-y: auto; overflow-x: hidden;">
+
+				<div class="col-md-4">
+					<h5> Tag ID </h5>
+					<div id="colTag" style="margin-top:15px;">
+					</div>
+				</div>
+
+				<div class="col-md-2">
+					<h5> Opción </h5>
+					<div id="colOpc" style="margin-top:15px;">
+					</div>
+				</div>
+
+				<div class="col-md-2">
+					<h5> Hora </h5>
+					<div id="colTime" style="margin-top:15px;">
+					</div>
+				</div>
+
+				<div class="col-md-4">
+					<h5> Acción </h5>
+					<div id="colMsg" style="margin-top:15px;">
+					</div>
+				</div>
+
+			</div>
+		</div>
+
+			<div id="Modo1" class="card" style="border-style: none;">
+				<div class="card-body row mb-6 align-items-start">
+
+					<div class="col-md-6 sbox">
+						<div class="card p-3">
+							<div class="row">
+								<h5 class="col-md-8"> Sala </h5>
+								<p id="salaContador"class="col-md-4"> </p>
+							</div>
+							<div id="colSala">
+							</div>
+						</div>
+					</div>
+
+					<div class="col-md-6 sbox">
+						<div class="card p-3">
+							<h5> Último usuario </h5>
+							<div id="colUsr">
+							</div>
+						</div>
+					</div>
+
+				</div>
+		</div>
+
+		<div id="Modo2" class="card" style="border-style: none;">
+			<div class="card-body row mb-6 align-items-start">
+
+				<div class="col-md-6 sbox">
+					<div class="card p-3">
+						<div class="row">
+							<h5 class="col-md-8"> Sala 1 </h5>
+							<p id="sala1Contador"class="col-md-4"> </p>
+						</div>
+						<div id="colSala1">
+						</div>
+					</div>
+				</div>
+
+				<div class="col-md-6 sbox">
+					<div class="card p-3">
+						<div class="row">
+							<h5 class="col-md-8"> Sala 2 </h5>
+							<p id="sala2Contador"class="col-md-4"> </p>
+						</div>
+						<div id="colSala2">
+						</div>
+					</div>
+				</div>
+
+			</div>
+	</div>
+
+		</div>
+
+</body>
+
+<style>
+
+.sbox{
+	padding-right: 5px;
+	padding-left: 5px;
+	min-height: 100px;
+}
+
+#style-1::-webkit-scrollbar-track
+{
+	-webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.3);
+	border-radius: 10px;
+	background-color: #F5F5F5;
+}
+
+#style-1::-webkit-scrollbar
+{
+	width: 12px;
+	background-color: #F5F5F5;
+}
+
+#style-1::-webkit-scrollbar-thumb
+{
+	border-radius: 10px;
+	-webkit-box-shadow: inset 0 0 6px rgba(0,0,0,.3);
+	background-color: #555;
+}
+
+
+</style>
+
+</html>
